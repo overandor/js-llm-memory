@@ -4,6 +4,7 @@
 
 import express from 'express';
 import CustomLLM from './llm.js';
+import { getZKMemoryBridge } from './zk-bridge.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,22 @@ const llm = new CustomLLM({
     retrievalThreshold: 0.3
   }
 });
+
+// Initialize ZK Memory Bridge
+let zkMemory = null;
+
+async function initZKMemory() {
+  try {
+    zkMemory = await getZKMemoryBridge();
+    console.log('ZK Memory initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize ZK Memory:', error.message);
+    console.log('ZK endpoints will be disabled');
+  }
+}
+
+// Initialize ZK memory on startup
+initZKMemory();
 
 // Middleware
 app.use(express.json());
@@ -177,6 +194,216 @@ app.get('/model/export', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', 'attachment; filename=model-state.json');
   res.json(state);
+});
+
+/**
+ * ZK Memory endpoints
+ */
+
+/**
+ * Check ZK memory status
+ */
+app.get('/zk/status', (req, res) => {
+  if (!zkMemory) {
+    return res.status(503).json({ error: 'ZK Memory not initialized' });
+  }
+  zkMemory.getInfo().then(info => res.json(info));
+});
+
+/**
+ * Add entry to ZK memory
+ */
+app.post('/zk/entry', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const { key, value } = req.body;
+    
+    if (!key || !value) {
+      return res.status(400).json({ error: 'Key and value are required' });
+    }
+    
+    const entry = await zkMemory.addEntry(key, value);
+    res.json({ success: true, entry });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get entry from ZK memory
+ */
+app.get('/zk/entry/:key', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const { key } = req.params;
+    const entry = await zkMemory.getEntry(key);
+    
+    if (!entry) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+    
+    res.json({ entry });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Verify entry hash
+ */
+app.post('/zk/verify', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const { key, hash } = req.body;
+    
+    if (!key || !hash) {
+      return res.status(400).json({ error: 'Key and hash are required' });
+    }
+    
+    const valid = await zkMemory.verifyEntry(key, hash);
+    res.json({ valid, key, hash });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Generate ZK commitment
+ */
+app.post('/zk/commitment', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const { key } = req.body;
+    
+    if (!key) {
+      return res.status(400).json({ error: 'Key is required' });
+    }
+    
+    const commitment = await zkMemory.generateCommitment(key);
+    res.json({ commitment });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Create ZK proof
+ */
+app.post('/zk/proof', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const { key, value } = req.body;
+    
+    if (!key || !value) {
+      return res.status(400).json({ error: 'Key and value are required' });
+    }
+    
+    const result = await zkMemory.createZKProof(key, value);
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Verify ZK proof
+ */
+app.post('/zk/verify-proof', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const { proof } = req.body;
+    
+    if (!proof) {
+      return res.status(400).json({ error: 'Proof is required' });
+    }
+    
+    const valid = await zkMemory.verifyZKProof(proof);
+    res.json({ valid, proof });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get Merkle root
+ */
+app.get('/zk/merkle-root', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const result = await zkMemory.getMerkleRoot();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get all hashes
+ */
+app.get('/zk/hashes', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const result = await zkMemory.getAllHashes();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get entry count
+ */
+app.get('/zk/count', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const count = await zkMemory.getEntryCount();
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Clear ZK memory
+ */
+app.delete('/zk/clear', async (req, res) => {
+  try {
+    if (!zkMemory) {
+      return res.status(503).json({ error: 'ZK Memory not initialized' });
+    }
+    
+    const result = await zkMemory.clear();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Start server
